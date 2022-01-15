@@ -2,6 +2,7 @@ const express = require('express');
 const ExpressError = require('../expressError');
 const db = require('../db');
 const router = new express.Router();
+const slugify = require('slugify');
 
 router.get('/', async function(req, res, next) {
     try {
@@ -17,13 +18,7 @@ router.get('/', async function(req, res, next) {
 router.get('/:code', async function(req, res, next) {
     try {
         const code = req.params.code;
-        // const result = await db.query( 
-        //     `SELECT * 
-        //      FROM companies
-        //      INNER JOIN invoices
-        //      ON code=comp_code 
-        //      WHERE code=$1`, 
-        //      [code] );
+
         const compQuery = await db.query (
             `SELECT *
              FROM companies
@@ -38,15 +33,24 @@ router.get('/:code', async function(req, res, next) {
              [code]
         );
 
-        const {name, description} = compQuery.rows[0];
-        const invoices = invQuery.rows;
-        
+        const indQuery = await db.query(
+            `SELECT * FROM companies_industries AS ci
+             INNER JOIN industries AS i
+             ON ci.ind_code=i.code
+             WHERE ci.comp_code=$1`,
+             [code]
+        )
+
         if (compQuery.rows.length === 0) {
             throw new ExpressError(`Can't find company with code '${code}'`, 404);
         }
 
+        const {name, description} = compQuery.rows[0];
+        const industries = indQuery.rows.map(i => i.industry);
+        const invoices = invQuery.rows;
+        
         return res.send({company: {code, name, description,
-                         invoices: invoices }})
+            industries: industries, invoices: invoices }})
     }
     catch(err) {
         return next(err);
@@ -55,7 +59,9 @@ router.get('/:code', async function(req, res, next) {
 
 router.post('/', async function(req, res, next) {
     try {
-        const { code, name, description } = req.body;
+        const { name, description } = req.body;
+        const code = slugify(name, {lower:true});
+
         const result = await db.query( 
             `INSERT INTO companies (code, name, description) 
              VALUES ($1, $2, $3) 
